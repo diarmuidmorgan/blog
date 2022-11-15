@@ -1,0 +1,563 @@
+---
+title: "Does GPT2 correlate with your brain?"
+author: "Dermot"
+date: "2022-11-05"
+categories: [code, analysis]
+image: "image2.webp"
+bibliography: "references.bib"
+---
+
+![Possibly the author on the left.](image2.webp "Title")
+
+
+### Introduction
+
+Large Language Models (LLMs) are doing really well for themselves right now. Not only have they crushed most existing language benchmarks into the dust, but recent iterations have seen success at everything from groking high school math questions, writing papers for overworked undergraduates, and even convincing google engineers to retain lawyers on their behalf. Debate as to the further scaling of these models often seems to point towards the dawn of AGI arriving just as soon as somebody stumps up the cash to wire up thousands of GPUs in parallel and feed them the entirety of the internet as training data. 
+
+What is perhaps most surprising is that all of the above seems to have emerged independent of any particular training goal. The networks aren't optimized to write undergrad papers, or to exhibit convicing portrayals of embodied agency. They are tasked only with predicting the next most likely word in a sequence, given some previous context (e.g an incomplete sentence.) All the rest seems to appear 'for free' (or with a lot of clever prompting). 
+
+If this isn't enough, a number of recent papers have claimed that existing LLMs actually predict human brain activity during language comprehension [@caucheteux2022deep; @schrimpf2021neural]. Despite never seeing a single blip of human brain activity, it seems like they can reliably correlate with the parts of the brain considered to be active during language processing. This might seem to be going a little far. LLMs are so amazing that they predict your brain too! With a healthy dose of skepticism, I'll examine this claim by unpacking the source code of perhaps the best cited of these papers, Schrimpf et al 2021.
+
+### Schrimpf et al's pipeline
+
+The Schrimpf et al paper tests a variety of pretrained LLM models on neural datasets, finding openAI's gpt2 (which is the largest) to be the best. The authors follow a basic pipeline:
+
+1. A dataset is chosen containing observed FMRI values for participants as they listen to recorded text. The dataset is arranged so that each group of FMRI values is matched with the sentence that was being played when the corresponding FMRI values were recorded[^3].
+
+2. The sentences are grouped into stories. The stories are passed into gpt2 (or a smaller LLM), one sentence at a time, but including the previous sentences in the story as context input, and the LLM's activations are recorded at each layer.
+
+3. Thus we have two datasets. One is a set of FMRI values paired with sentences, and the other is a set of gpt2 activations paired with the same sentences.
+
+4. For each column of FMRI values, and for each layer of gpt2, they fit a Linear Regression model between gpt2's activations at that layer, and the column of FMRI values. A train/test split is used.
+
+5. Each of these models is evaluated on the pearson corrleation between the real and predicted FMRI values for the holdout test data.
+
+6. For each layer, the correlations are aggregated across columns of FMRI values, and then normalized via a noise ceiling to produce a 'brain score' for that layer.
+
+### Running Schrimpf et al's code on [Blank 2014]( https://journals.physiology.org/doi/full/10.1152/jn.00884.2013)
+
+Schrimpf et al were kind enough to make their code available [here](https://github.com/mschrimpf/neural-nlp). I had some trouble getting it installed on my machine[^1], but once its up and running the pipeline can be executed more or less like this:
+
+```
+from neural_nlp import score as score_function
+from neural_nlp.models import model_pool
+
+model='gpt2-xl'
+benchmark = 'Blank2014fROI-encoding'
+layers=None
+subsample=None
+
+
+(raw, normalized )= score_function(model=model,
+            layers=layers,
+            subsample=subsample,
+            benchmark=benchmark)
+
+
+print(list([np.round(x,4) for x in raw.mean(axis=1).values]))
+
+--->[0.0063, 0.0063, 0.0237, 0.0249, 0.0378, 0.0342, 0.0228, 0.0241, 0.022, 0.0185, 0.0259,
+ 0.022, 0.0245, 0.0283, 0.03, 0.0409, 0.0424, 0.0373, 0.0422, 0.0425, 0.0447, 0.0374, 0.0437,
+  0.0442, 0.0518, 0.0503, 0.0559, 0.0594, 0.0582, 0.0619, 0.0519, 0.0539, 0.0569, 0.0548, 0.0498,
+   0.0468, 0.0504, 0.049, 0.0457, 0.0515, 0.0483, 0.0475, 0.0472, 0.0473, 0.0438, 0.041, 0.0407, 
+   0.0385, 0.0366]
+
+print([np.round(x,4) for x in normalized.values[:,0]])
+
+--->[0.0513, 0.0203, 0.1216, 0.1678, 0.2002, 0.1792, 0.1091, 0.1085, 0.1189, 0.0806, 0.1171,
+ 0.0688, 0.0999, 0.1618, 0.179, 0.1798, 0.2094, 0.1826, 0.1667, 0.2088, 0.2309, 0.1709,
+  0.206, 0.2154, 0.265, 0.2758, 0.3062, 0.2916, 0.367, 0.4073, 0.3394, 0.3412, 0.3865, 0.3738,
+   0.3075, 0.2637, 0.3211, 0.2725, 0.2605, 0.2515, 0.2349, 0.2225, 0.2003, 0.2031,
+    0.2366, 0.2183, 0.2253, 0.1911, 0.1847]
+
+---->
+```
+
+![The output](run1.png "Title")
+
+After many hours of compute, we get the above results. The output is two instances of `DataAssembly`, the first one giving the raw correlations, and the second providing the final brain scores, normalized by a noise ceiling (a correlation upper bound that the authors precomputed). The normalized values give a score for each layer in gpt2. We can see that they're at their strongest (max `0.4073`) in the middle to latter layers. So this seems ok. The raw correlations are really small (get back to this later), though Schrimpf et al assure us that this is quite good compared to the noise ceiling. But I'm not so easily convinced. Remember, that gpt2 has still never seen a single real life brain!
+
+### Signal Autocorrelation and a random embedding trick.
+
+So what if these FMRI signals were to correlate with themselves over time? For instance, your current heart beat is a reasonabley good indicator of your what heart beat will be ten seconds from now. Its going to do better than if I just make a blind guess, given no prior knowledge. Similarly, the FMRI signal value at one time point might not be a particularly bad predictor of the next timepoint. We can see how this works out for the FMRI data below.
+
+```
+import numpy as np
+from scipy.stats import pearsonr
+benchmark=benchmark_pool['Blank2014fROI-encoding']
+data = np.array(benchmark._target_assembly)
+corrs=[]
+skip=1
+
+#for each FMRI column, lag the signal by one step and calculate correlation
+#with the unlagged signal
+
+for i in range(data.shape[1]):
+    #lag the signal by 'skip' steps
+    v=data[:,i]
+    x=v[:-skip]
+    y=v[skip:]
+    cor = pearsonr(x,y)[0]
+    corrs.append(cor)
+print(np.mean(corrs))
+
+---> 0.41318839674224245
+```
+
+And aha! They do. Given that, we might wonder if there is a way we could trick a LinearRegression on random data to predict the right signal. Well seemingly we can. Below, I initialize a random embedding at the beginning of each story and then proceed by injecting a small amount of noise at each time step. For each neuroid dimension, I then randomly split the data into 0.9/0.1 train/test and train a linear regression to predict the voxels from the random embeddings. 
+
+```
+from sklearn.linear_model import LinearRegression
+
+#get the story name for each sample
+stimuli_ids = data._target_assembly['stimulus_id'].values
+stimuli_ids = [x.split('.')[0] for x in stim]
+
+embed_dim=3000
+embeds=[]
+#make a random embedding
+cur_embed = np.random.normal(0, 1, [embed_dim])
+prev_name = 'A'
+for stimuli_id in stimuli_ids:
+    #if stimuli_id is a new story, create a new random embedding
+    if prev_name != stimuli_id:
+        cur_embed = np.random.normal(0, 1, [embed_dim])
+    #otherwise, just add a (fairly large) amount of noise to the current embedding  
+    else:
+        cur_embed = cur_embed + np.random.normal(0, 0.1, [embed_dim])
+    prev_name=stimuli_id
+    embeds.append(cur_embed)
+    
+X=np.array(embeds)
+corrs=[]
+
+#for each neuroid, do a random train test split
+#build a linear regression between the semi random embeddings and the target
+for i in range(data.shape[1]):
+    Y = data[:, i]
+    train_idx = np.random.random(len(X))<0.9
+    train_x = X[train_idx]
+    train_y = Y[train_idx].reshape(-1,1)
+    test_x = X[~train_idx]
+    test_y = Y [~train_idx].reshape(-1,1)
+    m = LinearRegression().fit(train_x, train_y)
+    pred = m.predict(test_x)
+    cor,p = pearsonr(pred.flatten(), test_y.flatten())
+    corrs.append(cor)
+
+print('Mean correlation with simple train/test split', np.mean(corrs))
+
+---> Mean correlation with simple train/test split 0.41665761324952694
+```
+
+So my simple embedding scheme effectively captures all of the autocorrelation implicit in the signals, and does much better than gpt2 in terms of raw correlation. We can bake this into Shcrimpf et al's code with a quick hack:
+
+```
+import neural_nlp
+from neural_nlp import score as score_function
+from neural_nlp.models import model_pool
+import numpy as np
+import itertools
+from neural_nlp.utils import ordered_set
+from brainio.assemblies import DataAssembly, walk_coords, merge_data_arrays, array_is_element
+from neural_nlp.benchmarks.neural import Blank2014fROIEncoding
+
+def listen_to(candidate, stimulus_set, reset_column='story', average_sentence=True):
+    """
+    Code is from neural_nlp.benchmarks.neural.listen_to
+    Add code to replace story_activations with our random trick embeddings of the same size.
+    
+    Pass a stimulus_set through a model candidate.
+    Operates on a sentence-based stimulus_set.
+    """
+    activations = []
+    for story in ordered_set(stimulus_set[reset_column].values):
+        story_stimuli = stimulus_set[stimulus_set[reset_column] == story]
+
+        story_stimuli.name = f"{stimulus_set.name}-{story}"
+        story_activations = candidate(stimuli=story_stimuli, average_sentence=average_sentence)
+        
+        #This is the only addition to the code - add our random trick in place of
+        #gpt2's activations
+        embed=np.random.normal(0,1 , [story_activations.shape[1]])
+        new_activ = [embed]
+        for i in range(1,story_activations.shape[0]):
+            embed = embed + np.random.normal(0, 0.001, story_activations.shape[1])
+            new_activ.append(embed)
+        story_activations[:] = new_activ
+        #End addition.
+        
+        
+        activations.append(story_activations)
+        
+    model_activations = merge_data_arrays(activations)
+    # merging does not maintain stimulus order. the following orders again
+    idx = [model_activations['stimulus_id'].values.tolist().index(stimulus_id) for stimulus_id in
+           itertools.chain.from_iterable(s['stimulus_id'].values for s in activations)]
+    assert len(set(idx)) == len(idx), "Found duplicate indices to order activations"
+    model_activations = model_activations[{'presentation': idx}]
+    #the model activations returned here are actually ordered by story
+   
+    return model_activations
+
+
+#need to change __call__ method to use the listen_to method above
+class Blank2014RandomEmbed(Blank2014fROIEncoding):
+    
+    def __call__(self, candidate):
+
+        model_activations = listen_to(candidate, self._target_assembly.attrs['stimulus_set'])
+        assert set(model_activations['stimulus_id'].values) == set(self._target_assembly['stimulus_id'].values)
+        score = self.apply_metric(model_activations, self._target_assembly).copy()
+        
+        normalized_score,raw_score = self.ceiling_normalize(score)
+    
+
+        return raw_score, normalized_score
+    
+
+benchmark_pool['Blank2014RandomEmbed'] = BlankRandomEmbed('Blank2014fROI-encoding')
+
+model='gpt2-xl'
+layers=None
+subsample=None
+benchmark='Blank2014RandomEmbed'
+
+(raw, normalized )= score_function(model='gpt2-xl',
+            layers=layers,
+            subsample=subsample,
+            benchmark=benchmark)
+            
+            
+print([np.round(x,4) for x in normalized.values[:,0]])
+---->[1.6771, 1.7417, 1.5778, 1.7718, 1.6413, 1.6526, 1.6702, 1.6343,
+ 1.6861, 1.6316, 1.6659, 1.621, 1.7315, 1.7783, 1.7054, 1.6932, 1.5978,
+  1.7578, 1.6671, 1.7184, 1.6518, 1.6154, 1.6411, 1.7644, 1.5474, 1.5287, 
+  ]1.6716, 1.7877, 1.7792, 1.707, 1.7296, 1.6836, 1.7145, 1.7302, 1.7645, 
+  1.7717, 1.568, 1.5788, 1.7494, 1.7074, 1.7392, 1.7495, 1.6844,
+1.7248, 1.6814, 1.6247, 1.6582, 1.6814, 1.7328]
+```
+![Brain-scores for the random embeddings](embeddingtrick.png 'Title')
+
+The brain scores here are huge! They completely destroy those of gpt2! So what is going on? If my random embedding trick can do this well within the authors framework, then how can it be said to be adequately testing for anything at all?
+
+### So what allowed for the 'good' results?
+
+My random embedding scheme relied upon the fact that each embedding in a story was 'similar' to its parent and child. I did this by injecting only a small amount of noise at each time step. If we think about it, the same thing should apply to gpt2's activations. The learned representation of the sentence "The quick brown fox jumps over the lazy dog" should be 'similar' to "The quick brown fox jumps over the lazy dog and then goes in search of...". After all, not an awful lot has really changed. 
+
+I tried to check this by calculating the 1-step cosine similarity values for the activations gpt2 produced - e.g the similarity between the embedding for "The quick brown fox jumps over the lazy dog" and that for "The quick brown fox jumps over the lazy dog and then goes in search of..." . This didn't work as expected. The lower (worst performing) layers of gpt2 had the best interstep similarity, which is contrary to what I would have expected from the results. So who knows - maybe cosine similarity just isn't a useful measure for LLM embeddings. 
+
+What I was able to do though, was show that gpt2's layer activations would exhibit similar behaviour when tested against random autocorrelated signals that I generated off the bat:
+
+```
+from neural_nlp.benchmarks import benchmark_pool
+from scipy.stats import pearsonr
+from sklearn.linear_model import LinearRegression
+import numpy as np
+import pickle
+
+#Thanks to https://stackoverflow.com/a/33904277 for the sample_signal code
+def sample_signal(n_samples, corr, mu=0, sigma=1):
+    assert 0 < corr < 1, "Auto-correlation must be between 0 and 1"
+
+    # Find out the offset `c` and the std of the white noise `sigma_e`
+    # that produce a signal with the desired mean and variance.
+    # See https://en.wikipedia.org/wiki/Autoregressive_model
+    # under section "Example: An AR(1) process".
+    c = mu * (1 - corr)
+    sigma_e = np.sqrt((sigma ** 2) * (1 - corr ** 2))
+
+    # Sample the auto-regressive process.
+    signal = [c + np.random.normal(0, sigma_e)]
+    for _ in range(1, n_samples):
+        signal.append(c + corr * signal[-1] + np.random.normal(0, sigma_e))
+
+    return np.array(signal)
+
+def compute_corr_lag_1(signal):
+    return np.corrcoef(signal[:-1], signal[1:])[0][1]
+
+
+def load(f):
+    
+    with open(f, 'rb') as handle:
+      
+        return pickle.load(handle)
+
+
+
+layer_scores=[]
+#create a random autocorrelated signal in the place of each neuroid
+signal=[ sample_signal(len(data),0.5) for j in range(50)]
+
+for i in range(1, 50):
+    
+    #I saved the layer activations to disk.
+    activations = load('activations/{}.bin'.format(str(i))).values
+    
+    corrs=[]
+    for j in range(50):
+
+        #80/20 train/test plit
+        train_idx = np.random.random(data.shape[0])<0.8 
+        test_idx = ~train_idx
+        train_X = activations[train_idx]
+        train_Y = signal[j].reshape(-1,1)[train_idx]
+        test_X = activations[test_idx]
+        test_Y = signal[j].reshape(-1,1)[test_idx]
+
+        #fit model between gpt2 and the random signal
+        model = LinearRegression().fit(train_X, train_Y)
+        #predict and evaluate
+        pred = model.predict(test_X)
+        cor, p = pearsonr(pred.flatten(), test_Y.flatten())
+        corrs.append(cor)
+        
+  
+    layer_scores.append(np.mean(corrs))
+        
+print([np.round(f,4) for f in list(layer_scores)]) 
+
+---> [0.0032, 0.0014, 0.0198, 0.0264, 0.034, 0.0213, 0.0246, 0.0213, 0.0306,
+ 0.03, 0.018, 0.0069, 0.0136, 0.0294, 0.0184, 0.0232, 0.025, 0.0365, 0.0338, 
+ 0.0464, 0.0588, 0.0526, 0.0419, 0.0442, 0.0619, 0.0636, 0.0553, 0.0373,
+  0.0368, 0.0485, 0.0614, 0.0494, 0.0541, 0.0519, 0.0507, 0.0511, 0.0563, 
+  0.0651, 0.0482, 0.049, 0.0468, 0.0589, 0.0565, 0.0656, 0.0531, 0.0634, 
+  0.0515, 0.0704, 0.0357]
+```
+
+![Gpt2 correlation with random signal](randomsignal.png 'Title')
+
+The raw correlation scores get better as you go deeper into the model, and then decrease towards the end. This doesn't happen quite as smoothly as when fitting gpt2 to the FMRI data. But there you go. Not only can a set of random embeddings excel within the paper's pipeline, but gpt2 can 'predict' more or less any autocorrelated signal, when tested in this way.
+
+### Examining the train/test split.
+
+The discerning reader noticed that I've been performing random train/test splits, with no regards as to the 'series' nature of the  data. And of course, the authors do this [too](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184). The option that the authors default to is:
+
+`self._split = StratifiedKFold(n_splits=splits, shuffle=True, random_state=random_state)`[^2]
+
+But this is definitely not how you're meant to handle time series data. The use of `shuffle=True` means that the voxel values from the end of each story are mixed up with those at the beginning, and the test values are just randomly missing points in the time series.
+
+
+If we wanted to just use a consecutive K-Fold cross validation, we could fix it like this:
+
+```
+...
+self._split = KFold(n_splits=splits, shuffle=False)
+...
+```
+Recomputing is quick, as the previously calculated gpt2 activations have been stored.
+```
+...
+...
+print(list([np.round(x,4) for x in raw.mean(axis=1).values]))
+--->[0.0099, 0.0065, 0.003, -0.0029, 0.0054, 0.0101, 0.0051, 0.0047, -0.0082, 0.0025,
+ 0.0047, 0.0088, 0.008, 0.0067, 0.0053, 0.0134, 0.0086, 0.0041, 0.0133,
+  0.0174, 0.0131, 0.0053, 0.0045, 0.0043, 0.0075, 0.0127, 0.0147, 0.0166,
+   0.0142, 0.0169, 0.0151, 0.0124, 0.0179, 0.0143, 0.0076, 0.0002, -0.0007, 
+   -0.0005, -0.0002, 0.0005, -0.0019, -0.0001, -0.0018, 0.0008, 0.0022, -0.0002,
+    0.0029, 0.0018, 0.0042]
+
+print([np.round(x,4) for x in normalized.values[:,0]])
+--->[0.0486, 0.0586, 0.0251, -0.017, 0.075, 0.0555, 0.0691,
+ 0.0358, -0.041, 0.0167, 0.0174, 0.0582, 0.0196, 0.0136,
+  0.0446, 0.0415, 0.0772, 0.063, 0.0271, 0.1104, 0.0601,
+   0.013, 0.0308, -0.031, 0.0151, 0.0978, 0.0963, 0.1133,
+    0.1328, 0.1853, 0.1706, 0.0971, 0.1552, 0.1403, 0.023, 
+    0.0135, 0.0109, -0.0029, -0.0107, -0.0227, -0.0169,
+     0.0412, 0.0203, 0.0424, -0.0042, -0.0253, 0.0212, 0.0083, 0.0184]
+```
+
+Those scores are really different. But I think there is still some possibility of overlap occurring - future values being used as training data for test values earlier in the series. Another option is to do away with cross validation and just use a single split, using the first 80% of a each story as training data, and the last 20% as test. Thus we ensure that no future data is seen by the linear regressions. This is assuming that the stories constitute breaks in the time series. It's hacky, but we pop this change into the brain_score code [here](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L311) so that we run the cross validation 5 times on the same split.
+
+```
+...
+...
+...
+train_idx = []
+test_idx=[]
+from collections import defaultdict
+d=defaultdict(list)
+stimulus_ids = target_assembly['stimulus_id'].values
+for idx, stimulus_id in enumerate(stimulus_ids):
+
+    stimulus_id=stimulus_id.split('.')[0]
+    d[stimulus_id].append(idx)
+
+for stimulus_id in d:
+    idxs=d[stimulus_id]
+    cutoff=int(len(idxs)*0.8)
+    train_idx.extend(list(idxs[:cutoff]))
+    test_idx.extend(list(idxs[cutoff:]))
+
+for split_iterator, (train_indices, test_indices), done \
+                in tqdm(enumerate_done(splits), total=len(splits), desc='cross-validation'):
+            
+    train_indices,test_indices = train_idx, test_idx
+
+...
+...
+...
+
+print(list([np.round(x,4) for x in raw.mean(axis=1).values]))
+--->[0.0022, 0.0179, 0.008, 0.0018, 0.0106, 0.019, 0.0127, 0.0126, 0.0002,
+ 0.0037, 0.0047, 0.0111, 0.0089, 0.0147, 0.0069, 0.0161, 0.0131, 0.0064, 
+ 0.0164, 0.0191, 0.015, 0.0075, 0.0083, 0.0086, 0.0142, 0.0172, 0.0207, 
+ 0.0222, 0.0207, 0.0226, 0.0204, 0.0202, 0.0269, 0.023, 0.0183, 0.0088, 
+ 0.0094, 0.0092, 0.0062, 0.0065, 0.0043, 0.0041, -0.0002, 0.0023, 0.0063, 
+ 0.0045, 0.005, 0.0034, 0.0083]
+
+print([np.round(x,4) for x in normalized.values[:,0]])
+--->[0.0268, -0.0866, 0.1223, -0.0465, -0.1973, 0.0199, 
+-0.0719, 0.0215, -0.0109, -0.1299, 0.083, -0.0626, -0.0418, 
+-0.0597, 0.0077, 0.0426, -0.0827, 0.0612, 0.0772, 0.1293, 
+0.0654, -0.0816, 0.0846, -0.017, 0.1064, 0.0623, 0.0701, 
+0.046, 0.1553, 0.1693, 0.0432, 0.1265, 0.008, 0.0444, 0.0082, 
+-0.0185, -0.0137, -0.0178, 0.0317, 0.0407, -0.0013, 0.0121, 
+-0.0307, 0.0045, 0.0989, -0.1037, -0.0928, -0.153, -0.0165]
+```
+
+That's a big difference. The brain scores have pretty much collapsed, and there are a load of negative scores now. Alternatively, we could consider the whole dataset as one consecutive time series, and train on the first 80% of values and test only on the final 20%. E.g:
+
+```
+...
+...
+idx = np.arange(target_assembly.shape[0])
+cut_off = int(len(idx)*0.8)
+train_idx = idx[:cut_off]
+test_idx = idx[cut_off:]
+...
+...
+
+print(list([np.round(x,4) for x in raw.mean(axis=1).values]))
+--->[0.0014, 0.0081, 0.0092, -0.001, 0.0131, 0.0026, -0.0079, 0.0155, -0.0059, 
+0.0062, 0.0066, 0.0328, 0.0234, 0.0069, 0.0055, 0.0235, 0.0118, 0.0146, 0.0236, 
+0.0262, 0.0165, 0.0062, 0.0096, 0.0086, 0.0072, 0.0194, 0.0251, 0.0239, 0.0125, 
+0.0108, 0.0156, 0.0142, 0.0334, 0.0216, 0.0056, -0.0068, -0.0012, 0.001, 0.0057, 
+0.0014, 0.0007, -0.0181, -0.0114, -0.0016, -0.0023, -0.0104, -0.009, -0.0104, -0.002]
+
+print([np.round(x,4) for x in normalized.values[:,0]])
+--->[-0.0213, 0.0667, -0.0945, 0.0035, 0.0844, -0.0822, -0.0548, 0.18, 
+0.0561, 0.0135, 0.0509, 0.2229, 0.0795, 0.0935, 0.0614, 0.1577, 0.0676,
+ 0.1072, 0.1658, 0.1828, 0.0529, 0.0734, 0.0523, 0.0425, 0.0354, 0.126, 
+ 0.1824, 0.0505, 0.0899, 0.0414, 0.0949, 0.124, 0.2261, 0.2791, 0.1468, 0.0557, 
+ 0.0382, 0.0193, 0.0594, 0.0374, 0.0412, -0.02, -0.0065, -0.0035, 0.0318, -0.0479, -0.0127, 0.0144, 0.0567]
+
+```
+
+![Brain score comparisons across split strategies](finalcomparison.png 'Title')
+
+As the gpt2 activations have been saved, it all recomputes pretty quickly, and we get the above results. The mean normalized brain_score across layers in the first instance was `0.21432`. For the KFold fix, it went down to `0.044738`. Splitting the stories gave us `0.008828`, and just naively splitting the whole dataset 80/20 gives us `0.06575102040816326`. And look at the raw correlation values! There are still one or two layers showing some layer/brain correlation, but the values are tiny. But, a correlation is still a correlation. Or is it?
+
+### What makes a significant brain-score?
+
+I wanted to look a bit further, so I unpacked the actual p-values for the correlations that the best scoring layer gpt2 produced.
+
+```
+activations=load('activations/{}.bin'.format(str(best_layer+1))).values
+idx = np.arange(data.shape[0])
+cut_off = int(len(idx)*0.8)
+train_idx=idx[:cut_off]
+test_idx=idx[cut_off:]
+train_X = activations[train_idx]
+train_Y = data.values[train_idx]
+test_X = activations[test_idx]
+test_Y = data.values[test_idx]
+model = LinearRegression().fit(train_X, train_Y)
+pred = model.predict(test_X)
+ps=[]
+
+for j in range(data.shape[1]):
+
+    cor, p = pearsonr(pred[:,j].flatten(), test_Y[:,j].flatten())
+    ps.append(p)
+
+print(ps)
+print(np.mean(ps))
+
+---->[0.1261, 0.4546, 0.7403, 0.4028, 0.1986, 0.8898, 0.2407,
+ 0.5314, 0.4364, 0.9006, 0.8181, 0.4686, 0.0237, 0.3228, 0.7242,
+  0.3558, 0.0549, 0.1904, 0.9157, 0.3441, 0.1256, 0.0802, 0.5643,
+   0.4628, 0.1521, 0.9165, 0.2372, 0.6676, 0.9878, 0.9566, 0.6633,
+    0.1939, 0.2056, 0.6876, 0.7831, 0.2193, 0.9157, 0.0956, 0.8299,
+     0.867, 0.4778, 0.8489, 0.6799, 0.3197, 0.7199, 0.7147, 0.6371, 
+     0.8556, 0.374, 0.103, 0.8697, 0.2803, 0.4908, 0.0162, 0.7662,
+      0.3224, 0.6696, 0.0839, 0.0171, 0.9656]
+```
+
+So they're really high. Really, really high. If the significance threshold is a conservative 0.05, only 3 voxels actually test out below that. Most of them look like garbage.
+
+But what do we do with these p-values? How can we judge the significance of the overall brain-score (average correlation).
+
+A straight up approach might suggest we're doing multiple comparisons e.g testing multiple different hypotheses.  If we follow the [Bonferroni correction](https://en.wikipedia.org/wiki/Bonferroni_correction) method, then we would end up setting our significance threshold 60 times lower, and reject everything. But that can't be how people generally treat brain voxels right? 
+
+As per wikipedia, multiple comparisons assumes that we are testing quite different hypotheses e.g a new teaching method improves spelling, arithmetic, reading comprehension. But these voxels, they're kind of like similar hypotheses right? So perhaps the p-value for the final brain score should end up lower?
+
+Anyway I couldn't decide. I thought maybe we could empirically estimate p-values for the brain-scores by running the test thousands of times but with randomly generated gpt2 activations. Then we can see an approximate likelihood of doing as well as gpt2 with completely uncorrelated data. It's a bit rough and ready, but I guess it will do in the absence of something better.
+
+```
+brain_scores = []
+for i in range(1000):
+    
+    idx = np.arange(data.shape[0])
+    cut_off = int(len(idx)*0.8)
+    train_idx=idx[:cut_off]
+    test_idx=idx[cut_off:]
+    activations = np.random.normal(0, 0.1, activations.shape)
+    train_X = activations[train_idx]
+    train_Y = data.values[train_idx]
+
+    test_X = activations[test_idx]
+    test_Y = data.values[test_idx]
+    model = LinearRegression().fit(train_X, train_Y)
+    pred = model.predict(test_X)
+    corrs=[]
+    ps=[]
+  
+    for j in range(data.shape[1]):
+
+        cor, p = pearsonr(pred[:,j].flatten(), test_Y[:,j].flatten())
+        corrs.append(cor)
+    
+        
+   
+    brain_scores.append(np.mean(corrs))
+
+sorted_brain_scores=sorted(brain_scores)
+sorted_brain_scores=np.flip(sorted_brain_scores)[:200]
+x=np.arange(len(sorted_brain_scores))*0.001
+%matplotlib inline
+from matplotlib import pyplot as plt
+plt.plot(x, sorted_brain_scores)
+plt.xlabel('p-value')
+plt.ylabel('correlation')
+plt.show()
+```
+
+![Average-Correlation/p-value plot](pvalues2.png 'Title')
+
+So if that's right, an average_correlation at or above `0.0195` is 'significant', at `p<0.05`. That puts several layers of gpt2 well within significance territory. 
+
+Still, doesn't testing 50 different gpt2 activation layers sound an awful lot like testing 50 different hypothesis? If so, then applying Bonferroni correction we'd be adjusting the significance threshold down to `p<=0.001`, or an average correlation of `0.0412`. That way we'd once again end up rejecting everything.
+
+I can't decide. I guess gpt2 might correlate with your brain, but only very, very slightly.
+
+### Conclusion
+
+Altogether, this paper hasn't convinced me that gpt2 knows anything about my brain. There are some caveats though. As mentioned[^1], I couldn't get the package to install cleanly, so I would be a little wary of package mismatches. Also, I have only tested one dataset, whereas the authors provided four in their code. I think the loader for Federenko-2016 wouldn't work, and Pereira-2018 with its 150,000 FMRI values was going to take days to compute for. The same dubious `StratifiedKFold` is used for all four datasets though, so I would question the effect size of the results given in the paper. That said, the results could remain significant once this has been corrected for.
+
+The choice of train/test split in the code seems like an obvious mistake - gpt2 can seemingly correlate with any random signal if you use the given approach. But I was really confused about the difference in value given from splitting by story vs a clean 80/20 consecutive split. Unfortunately, this kind of prevents me from tying everything together nicely.
+
+Lastly, this doesn't say anything about the many other papers out there that are doing similar things. For instance, Caucheteux et al (code unavailable) state that they use a GroupKFold, which might well be better. They also present much lower brain_scores, though no explicit p-values for them, and no mention of how they addressed the multiple comparisons thing.
+
+If I get some time, I might try to compute the other datasets here. But for now, it seems inconclusive. I guess that gp2 might correlate with my brain, but only very, very slightly?
+
+Overall, I hope that gpt2-brain researchers can agree upon a reasonable way to do a train/test split, and also to do better at explaining to lay people what are acceptable underlying correlations and p-values for the normalized brain-score values that they present as evidence.
+
+
+[^1]: I had some problems installing this. In the end, what seemed to work was installing nltk, pytorch and tensorflow separately with pip/conda, grabbing the latest [brainscore](https://github.com/brain-score/brain-score/tree/master/brainscore) and [brainio_base](https://github.com/brain-score/brainio_base) packages directly from github, and only then running the neural_nlp setup.py script.
+[^2]: [https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184) This line in the brainscore code predates the release of the paper by at least 2 years, so it seems like they did in fact use it to compute their paper results.
+[^3]: In the dataset examined here, [Blank et al 2014]( https://journals.physiology.org/doi/full/10.1152/jn.00884.2013), there are only 60 values per time point. I assume this means that the values have been aggregated accross regions and participants, and restricted to only a set of voxels that are relevant for language processing. I'm not sure though. Anecdotally, I have heard that this FMRI thing can be something of a dark art.
+
+
+
