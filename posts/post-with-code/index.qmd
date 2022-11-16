@@ -451,7 +451,7 @@ As the gpt2 activations have been saved, it all recomputes pretty quickly, and w
 
 ### What makes a significant brain-score?
 
-I wanted to look a bit further, so I unpacked the actual p-values for the individual correlations that the best scoring layer gpt2 produced.
+I wanted to look a bit further, so I unpacked the actual p-values for the individual correlations that the best scoring gpt2 layer produced.
 
 ```python
 activations=load('activations/{}.bin'.format(str(best_layer+1))).values
