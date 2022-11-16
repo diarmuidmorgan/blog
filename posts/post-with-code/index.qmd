@@ -12,7 +12,7 @@ bibliography: "references.bib"
 
 ### Introduction
 
-Large Language Models (LLMs) have had quite a run over the past few years. Not only have they crushed most existing language benchmarks into the dust, but recent iterations have excelled at everything from groking high school math questions and writing papers for overworked undergraduates, to even convincing google engineers to retain lawyers on their behalf. With further scaling, it sometimes seems that full AGI will be arriving just as soon as somebody stumps up the cash to wire thousands of GPUs in parallel and feed them the entirety of the internet as training data. 
+Large Language Models (LLMs) have had quite a run over the past few years. Not only have they crushed most existing language benchmarks into the dust, but recent iterations have excelled at everything from groking high school math questions and writing papers for overworked undergraduates, to even convincing google engineers to retain lawyers on their behalf. With further scaling, it sometimes seems that full AGI will be arriving just as soon as somebody stumps up the cash to wire just enough GPUs in parallel and feed them the entirety of the internet as training data. 
 
 Perhaps surprisingly, much of the above has emerged in the absence of any particular training goal. The networks aren't optimized to write coherent undergrad papers, or to exhibit convicing portrayals of embodied agency. They are tasked only with predicting the next most likely word in a sequence, given some previous context (e.g an incomplete sentence). All the rest seems to appear 'for free' (or with a lot of clever prompting). 
 
