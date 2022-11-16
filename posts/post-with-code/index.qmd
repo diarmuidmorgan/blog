@@ -1,7 +1,7 @@
 ---
 title: "Does GPT2 correlate with your brain?"
-author: "Dermot"
-date: "2022-11-05"
+author: "dermot"
+date: "2022-11-16"
 categories: [code, analysis]
 image: "image2.webp"
 bibliography: "references.bib"
@@ -12,19 +12,19 @@ bibliography: "references.bib"
 
 ### Introduction
 
-Large Language Models (LLMs) are doing really well for themselves right now. Not only have they crushed most existing language benchmarks into the dust, but recent iterations have seen success at everything from groking high school math questions, writing papers for overworked undergraduates, and even convincing google engineers to retain lawyers on their behalf. Debate as to the further scaling of these models often seems to point towards the dawn of AGI arriving just as soon as somebody stumps up the cash to wire up thousands of GPUs in parallel and feed them the entirety of the internet as training data. 
+Large Language Models (LLMs) have had quite a run over the past few years. Not only have they crushed most existing language benchmarks into the dust, but recent iterations have excelled at everything from groking high school math questions and writing papers for overworked undergraduates, to even convincing google engineers to retain lawyers on their behalf. With further scaling, it sometimes seems that full AGI will be arriving just as soon as somebody stumps up the cash to wire thousands of GPUs in parallel and feed them the entirety of the internet as training data. 
 
-What is perhaps most surprising is that all of the above seems to have emerged independent of any particular training goal. The networks aren't optimized to write undergrad papers, or to exhibit convicing portrayals of embodied agency. They are tasked only with predicting the next most likely word in a sequence, given some previous context (e.g an incomplete sentence.) All the rest seems to appear 'for free' (or with a lot of clever prompting). 
+Perhaps surprisingly, much of the above has emerged in the absence of any particular training goal. The networks aren't optimized to write coherent undergrad papers, or to exhibit convicing portrayals of embodied agency. They are tasked only with predicting the next most likely word in a sequence, given some previous context (e.g an incomplete sentence). All the rest seems to appear 'for free' (or with a lot of clever prompting). 
 
-If this isn't enough, a number of recent papers have claimed that existing LLMs actually predict human brain activity during language comprehension [@caucheteux2022deep; @schrimpf2021neural]. Despite never seeing a single blip of human brain activity, it seems like they can reliably correlate with the parts of the brain considered to be active during language processing. This might seem to be going a little far. LLMs are so amazing that they predict your brain too! With a healthy dose of skepticism, I'll examine this claim by unpacking the source code of perhaps the best cited of these papers, Schrimpf et al 2021.
+If this isn't enough, a number of recent papers have claimed that existing LLMs actually predict human brain activity during language comprehension [@caucheteux2022deep; @schrimpf2021neural]. Despite never seeing a single blip of human neurology, it seems that their internal activations reliably correlate with the parts of the brain considered to be active during language processing. This might seem to be taking things a little too far - LLMs are so amazing that they can even predict your brain! With a healthy dose of skepticism, I'll examine this claim by unpacking the source code of perhaps the best cited of these papers, Schrimpf et al 2021.
 
 ### Schrimpf et al's pipeline
 
-The Schrimpf et al paper tests a variety of pretrained LLM models on neural datasets, finding openAI's gpt2 (which is the largest) to be the best. The authors follow a basic pipeline:
+The Schrimpf et al paper tests a variety of pretrained LLM models on neural datasets, finding openAI's gpt2 (which is the largest)[^5] to be the best. The authors follow a basic pipeline:
 
 1. A dataset is chosen containing observed FMRI values for participants as they listen to recorded text. The dataset is arranged so that each group of FMRI values is matched with the sentence that was being played when the corresponding FMRI values were recorded[^3].
 
-2. The sentences are grouped into stories. The stories are passed into gpt2 (or a smaller LLM), one sentence at a time, but including the previous sentences in the story as context input, and the LLM's activations are recorded at each layer.
+2. The sentences are grouped into stories. The stories are passed into gpt2 (or a smaller LLM), one sentence at a time, but including the previous sentences in the story as contextual input, and the LLM's activations are recorded at each layer.
 
 3. Thus we have two datasets. One is a set of FMRI values paired with sentences, and the other is a set of gpt2 activations paired with the same sentences.
 
@@ -36,9 +36,9 @@ The Schrimpf et al paper tests a variety of pretrained LLM models on neural data
 
 ### Running Schrimpf et al's code on [Blank 2014]( https://journals.physiology.org/doi/full/10.1152/jn.00884.2013)
 
-Schrimpf et al were kind enough to make their code available [here](https://github.com/mschrimpf/neural-nlp). I had some trouble getting it installed on my machine[^1], but once its up and running the pipeline can be executed more or less like this:
+Schrimpf et al are kind enough to make their code available [here](https://github.com/mschrimpf/neural-nlp). I had some trouble getting it installed on my machine[^1], but once it's up and running the pipeline can be executed more or less like this:
 
-```
+```python
 from neural_nlp import score as score_function
 from neural_nlp.models import model_pool
 
@@ -75,13 +75,13 @@ print([np.round(x,4) for x in normalized.values[:,0]])
 
 ![The output](run1.png "Title")
 
-After many hours of compute, we get the above results. The output is two instances of `DataAssembly`, the first one giving the raw correlations, and the second providing the final brain scores, normalized by a noise ceiling (a correlation upper bound that the authors precomputed). The normalized values give a score for each layer in gpt2. We can see that they're at their strongest (max `0.4073`) in the middle to latter layers. So this seems ok. The raw correlations are really small (get back to this later), though Schrimpf et al assure us that this is quite good compared to the noise ceiling. But I'm not so easily convinced. Remember, that gpt2 has still never seen a single real life brain!
+After many hours of compute, we get the above results. The output is two instances of `DataAssembly`, the first one giving the raw correlations, and the second providing the final brain scores. We can see that they're at their strongest (max `0.4073`) in the middle to latter layers of gpt2. So this seems ok. The raw correlations are really small (get back to this later), though Schrimpf et al assure us that this is quite good compared to the noise ceiling. But I'm not so easily convinced. Remember, that gpt2 has still never seen a single real life brain!
 
 ### Signal Autocorrelation and a random embedding trick.
 
-So what if these FMRI signals were to correlate with themselves over time? For instance, your current heart beat is a reasonabley good indicator of your what heart beat will be ten seconds from now. Its going to do better than if I just make a blind guess, given no prior knowledge. Similarly, the FMRI signal value at one time point might not be a particularly bad predictor of the next timepoint. We can see how this works out for the FMRI data below.
+What if these FMRI signals were to correlate with themselves over time? For instance, your current heart beat is a reasonably good indicator of what your heart beat will be ten seconds from now. Its going to do better than if I just make a blind guess, given no prior knowledge. Similarly, the FMRI signal value at one time point might not be a particularly bad predictor of the next timepoint. We can see how this works out for the FMRI data below.
 
-```
+```python
 import numpy as np
 from scipy.stats import pearsonr
 benchmark=benchmark_pool['Blank2014fROI-encoding']
@@ -104,14 +104,14 @@ print(np.mean(corrs))
 ---> 0.41318839674224245
 ```
 
-And aha! They do. Given that, we might wonder if there is a way we could trick a LinearRegression on random data to predict the right signal. Well seemingly we can. Below, I initialize a random embedding at the beginning of each story and then proceed by injecting a small amount of noise at each time step. For each neuroid dimension, I then randomly split the data into 0.9/0.1 train/test and train a linear regression to predict the voxels from the random embeddings. 
+ They do. Given that, we might wonder if there is a way we could trick a linear regression on random data to predict the right signal. Well seemingly we can. Below, I initialize a random embedding at the beginning of each story and then proceed by injecting a small amount of noise at each time step. For each voxel dimension, I then randomly split the data into 0.9/0.1 train/test and train a linear regression to predict the voxels from the random embeddings. 
 
-```
+```python
 from sklearn.linear_model import LinearRegression
 
 #get the story name for each sample
 stimuli_ids = data._target_assembly['stimulus_id'].values
-stimuli_ids = [x.split('.')[0] for x in stim]
+stimuli_ids = [x.split('.')[0] for x in stimuli_ids]
 
 embed_dim=3000
 embeds=[]
@@ -131,7 +131,7 @@ for stimuli_id in stimuli_ids:
 X=np.array(embeds)
 corrs=[]
 
-#for each neuroid, do a random train test split
+#for each voxel, do a random train test split
 #build a linear regression between the semi random embeddings and the target
 for i in range(data.shape[1]):
     Y = data[:, i]
@@ -152,7 +152,7 @@ print('Mean correlation with simple train/test split', np.mean(corrs))
 
 So my simple embedding scheme effectively captures all of the autocorrelation implicit in the signals, and does much better than gpt2 in terms of raw correlation. We can bake this into Shcrimpf et al's code with a quick hack:
 
-```
+```python
 import neural_nlp
 from neural_nlp import score as score_function
 from neural_nlp.models import model_pool
@@ -249,7 +249,7 @@ I tried to check this by calculating the 1-step cosine similarity values for the
 
 What I was able to do though, was show that gpt2's layer activations would exhibit similar behaviour when tested against random autocorrelated signals that I generated off the bat:
 
-```
+```python
 from neural_nlp.benchmarks import benchmark_pool
 from scipy.stats import pearsonr
 from sklearn.linear_model import LinearRegression
@@ -332,7 +332,7 @@ The raw correlation scores get better as you go deeper into the model, and then 
 
 ### Examining the train/test split.
 
-The discerning reader noticed that I've been performing random train/test splits, with no regards as to the 'series' nature of the  data. And of course, the authors do this [too](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184). The option that the authors default to is:
+You might have noticed that I've been performing random train/test splits, with no regards as to the 'series' nature of the  data. And of course, the authors do this [too](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184). The option that the authors default to is:
 
 `self._split = StratifiedKFold(n_splits=splits, shuffle=True, random_state=random_state)`[^2]
 
@@ -341,13 +341,13 @@ But this is definitely not how you're meant to handle time series data. The use 
 
 If we wanted to just use a consecutive K-Fold cross validation, we could fix it like this:
 
-```
+```python
 ...
 self._split = KFold(n_splits=splits, shuffle=False)
 ...
 ```
 Recomputing is quick, as the previously calculated gpt2 activations have been stored.
-```
+```python
 ...
 ...
 print(list([np.round(x,4) for x in raw.mean(axis=1).values]))
@@ -370,7 +370,7 @@ print([np.round(x,4) for x in normalized.values[:,0]])
 
 Those scores are really different. But I think there is still some possibility of overlap occurring - future values being used as training data for test values earlier in the series. Another option is to do away with cross validation and just use a single split, using the first 80% of a each story as training data, and the last 20% as test. Thus we ensure that no future data is seen by the linear regressions. This is assuming that the stories constitute breaks in the time series. It's hacky, but we pop this change into the brain_score code [here](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L311) so that we run the cross validation 5 times on the same split.
 
-```
+```python
 ...
 ...
 ...
@@ -419,7 +419,7 @@ print([np.round(x,4) for x in normalized.values[:,0]])
 
 That's a big difference. The brain scores have pretty much collapsed, and there are a load of negative scores now. Alternatively, we could consider the whole dataset as one consecutive time series, and train on the first 80% of values and test only on the final 20%. E.g:
 
-```
+```python
 ...
 ...
 idx = np.arange(target_assembly.shape[0])
@@ -451,9 +451,9 @@ As the gpt2 activations have been saved, it all recomputes pretty quickly, and w
 
 ### What makes a significant brain-score?
 
-I wanted to look a bit further, so I unpacked the actual p-values for the correlations that the best scoring layer gpt2 produced.
+I wanted to look a bit further, so I unpacked the actual p-values for the individual correlations that the best scoring layer gpt2 produced.
 
-```
+```python
 activations=load('activations/{}.bin'.format(str(best_layer+1))).values
 idx = np.arange(data.shape[0])
 cut_off = int(len(idx)*0.8)
@@ -487,16 +487,17 @@ print(np.mean(ps))
 
 So they're really high. Really, really high. If the significance threshold is a conservative 0.05, only 3 voxels actually test out below that. Most of them look like garbage.
 
-But what do we do with these p-values? How can we judge the significance of the overall brain-score (average correlation).
+But what do we do with these p-values? How can we judge the significance of the overall brain-score (average correlation)?
 
-A straight up approach might suggest we're doing multiple comparisons e.g testing multiple different hypotheses.  If we follow the [Bonferroni correction](https://en.wikipedia.org/wiki/Bonferroni_correction) method, then we would end up setting our significance threshold 60 times lower, and reject everything. But that can't be how people generally treat brain voxels right? 
+A straight up approach might suggest that we're testing multiple different hypotheses (e.g gpt2 correlates with voxel 1, with voxel 2... etc). If we follow the [Bonferroni correction](https://en.wikipedia.org/wiki/Bonferroni_correction) method, then we would end up setting our significance threshold 60 times lower, and reject everything. But that can't be how people generally treat brain voxels right? 
 
-As per wikipedia, multiple comparisons assumes that we are testing quite different hypotheses e.g a new teaching method improves spelling, arithmetic, reading comprehension. But these voxels, they're kind of like similar hypotheses right? So perhaps the p-value for the final brain score should end up lower?
+As per wikipedia, multiple comparisons assumes that we are testing quite different hypotheses e.g a new teaching method improves spelling, arithmetic, reading comprehension. But these voxels, they're kind of like similar hypotheses right? So perhaps the p-value for the final brain score should end up lower overall?
 
-Anyway I couldn't decide. I thought maybe we could empirically estimate p-values for the brain-scores by running the test thousands of times but with randomly generated gpt2 activations. Then we can see an approximate likelihood of doing as well as gpt2 with completely uncorrelated data. It's a bit rough and ready, but I guess it will do in the absence of something better.
+I couldn't decide. I thought maybe we could empirically estimate p-values for the brain-scores by running the test thousands of times but with randomly generated gpt2 activations. Then we can see an approximate likelihood of doing as well as gpt2 with completely uncorrelated data. It's a bit rough and ready, but I guess it will do in the absence of something better.
 
-```
+```python
 brain_scores = []
+# Compute the average correlation between random activations and the brain data
 for i in range(1000):
     
     idx = np.arange(data.shape[0])
@@ -523,6 +524,7 @@ for i in range(1000):
    
     brain_scores.append(np.mean(corrs))
 
+#sort the average correlations and plot as p-value/average-correlation
 sorted_brain_scores=sorted(brain_scores)
 sorted_brain_scores=np.flip(sorted_brain_scores)[:200]
 x=np.arange(len(sorted_brain_scores))*0.001
@@ -544,20 +546,18 @@ I can't decide. I guess gpt2 might correlate with your brain, but only very, ver
 
 ### Conclusion
 
-Altogether, this paper hasn't convinced me that gpt2 knows anything about my brain. There are some caveats though. As mentioned[^1], I couldn't get the package to install cleanly, so I would be a little wary of package mismatches. Also, I have only tested one dataset, whereas the authors provided four in their code. I think the loader for Federenko-2016 wouldn't work, and Pereira-2018 with its 150,000 FMRI values was going to take days to compute for. The same dubious `StratifiedKFold` is used for all four datasets though, so I would question the effect size of the results given in the paper. That said, the results could remain significant once this has been corrected for.
+Altogether, this paper hasn't convinced me that gpt2 knows anything about my brain. There are some caveats though. As mentioned[^4], I couldn't get the package to install cleanly, so I would be a little wary of package mismatches. The choice of train/test split was a pretty obvious mistake, but I am unsure as to whether what's left afterwards is significant or not. Also, I have only tested one dataset, whereas the authors provided four in their code. I think the loader for Federenko-2016 wouldn't work, and Pereira-2018 with its 150,000 FMRI values was going to take days to compute for. The same dubious `StratifiedKFold` is used for all four datasets though, so I would question the effect size of the results given in the paper. That said, the results could remain significant once this has been corrected for.
 
-The choice of train/test split in the code seems like an obvious mistake - gpt2 can seemingly correlate with any random signal if you use the given approach. But I was really confused about the difference in value given from splitting by story vs a clean 80/20 consecutive split. Unfortunately, this kind of prevents me from tying everything together nicely.
+Also, this doesn't say anything about the many other papers out there that are doing similar things. For instance, Caucheteux et al (code unavailable) state that they use a `GroupKFold`, which sounds a lot better. They also present much lower brain_scores, though no explicit p-values for them, and no mention of how they addressed the multiple comparisons thing.
 
-Lastly, this doesn't say anything about the many other papers out there that are doing similar things. For instance, Caucheteux et al (code unavailable) state that they use a GroupKFold, which might well be better. They also present much lower brain_scores, though no explicit p-values for them, and no mention of how they addressed the multiple comparisons thing.
-
-If I get some time, I might try to compute the other datasets here. But for now, it seems inconclusive. I guess that gp2 might correlate with my brain, but only very, very slightly?
-
-Overall, I hope that gpt2-brain researchers can agree upon a reasonable way to do a train/test split, and also to do better at explaining to lay people what are acceptable underlying correlations and p-values for the normalized brain-score values that they present as evidence.
+If I get some time, I might try to compute for the other datasets here. But for now, it seems inconclusive. Overall, I hope that gpt2-brain researchers can agree upon a reasonable way to do a train/test split. They could also do better at explaining to lay people what are acceptable underlying correlations and p-values for the normalized brain-score values that they present as evidence.
 
 
 [^1]: I had some problems installing this. In the end, what seemed to work was installing nltk, pytorch and tensorflow separately with pip/conda, grabbing the latest [brainscore](https://github.com/brain-score/brain-score/tree/master/brainscore) and [brainio_base](https://github.com/brain-score/brainio_base) packages directly from github, and only then running the neural_nlp setup.py script.
 [^2]: [https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184](https://github.com/brain-score/brain-score/blob/master/brainscore/metrics/transformations.py#L184) This line in the brainscore code predates the release of the paper by at least 2 years, so it seems like they did in fact use it to compute their paper results.
 [^3]: In the dataset examined here, [Blank et al 2014]( https://journals.physiology.org/doi/full/10.1152/jn.00884.2013), there are only 60 values per time point. I assume this means that the values have been aggregated accross regions and participants, and restricted to only a set of voxels that are relevant for language processing. I'm not sure though. Anecdotally, I have heard that this FMRI thing can be something of a dark art.
+[^4]:See [1]
+[^5]: The funny thing is that anyone who downloaded and ran gpt2 back in 2019 will remember that it didn't really seem to understand language at all. 
 
 
 
